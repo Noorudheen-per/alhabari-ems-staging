@@ -1,0 +1,119 @@
+-- ════════════════════════════════════════════════════════════
+-- Al Habari EMS — v29 STORAGE REFACTOR
+-- ════════════════════════════════════════════════════════════
+-- This migration prepares the app for storing photos and documents
+-- in Supabase Storage (object storage) instead of base64 in DB rows.
+--
+-- WHY: The current architecture stores photos/PDFs as base64 strings
+-- inside the employees table. This is fine for tiny datasets but
+-- DOES NOT SCALE. For 300+ employees with PDFs, the app would
+-- download GIGABYTES on every login. Storage fixes that.
+--
+-- This is a 2-PART migration:
+--   PART 1: SQL changes below (run in SQL Editor)
+--   PART 2: Storage bucket setup (manual clicks in Dashboard → Storage)
+--
+-- Both must be done. SQL is safe to run multiple times.
+-- ════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────
+-- PART 1A: Add columns to employees for photo storage
+-- ─────────────────────────────────────────────────────
+-- New columns (kept alongside legacy `photo` for backwards compat):
+--   photo_path   — path inside Storage bucket (e.g. "emp-1/photo-123.jpg")
+--   photo_bucket — bucket name (almost always "photos")
+-- Old `photo` column kept — it now stores the public Storage URL (or legacy base64 for unmigrated photos)
+
+ALTER TABLE employees
+  ADD COLUMN IF NOT EXISTS photo_path TEXT,
+  ADD COLUMN IF NOT EXISTS photo_bucket TEXT;
+
+-- Note: training/medical/gate-pass/PPE docs are stored inside the JSONB columns
+-- (trainings, medical, gate_passes). Each doc object now has shape:
+--   { name, type, size, bucket, path, uploadedAt }   ← new (Storage)
+-- OR (legacy):
+--   { name, type, size, data, uploadedAt }            ← old (base64)
+-- The app handles BOTH formats — no DB migration needed for those columns.
+
+-- ────────────────────────────────────────────────────────────
+-- PART 2: STORAGE BUCKETS — DO THIS IN SUPABASE DASHBOARD
+-- ────────────────────────────────────────────────────────────
+-- The SQL above is just half of the work. You ALSO need to create
+-- 5 Storage buckets in the Supabase Dashboard.
+--
+-- STEPS (10 minutes):
+--
+-- 1. Open Supabase Dashboard → your project → Storage (in left sidebar)
+--
+-- 2. Click "New bucket" 5 times to create:
+--
+--    a) Bucket name: photos
+--       Public bucket: ✅ YES (employee photos are not sensitive)
+--       File size limit: 5 MB
+--       Allowed MIME types: image/jpeg, image/png, image/webp
+--
+--    b) Bucket name: medical-docs
+--       Public bucket: ❌ NO (private — signed URLs only)
+--       File size limit: 15 MB
+--       Allowed MIME types: application/pdf, image/jpeg, image/png
+--
+--    c) Bucket name: gate-pass-docs
+--       Public bucket: ❌ NO
+--       File size limit: 10 MB
+--       Allowed MIME types: application/pdf, image/jpeg, image/png
+--
+--    d) Bucket name: training-docs
+--       Public bucket: ❌ NO
+--       File size limit: 10 MB
+--       Allowed MIME types: application/pdf, image/jpeg, image/png
+--
+--    e) Bucket name: vehicle-docs
+--       Public bucket: ❌ NO
+--       File size limit: 10 MB
+--       Allowed MIME types: application/pdf, image/jpeg, image/png
+--
+-- 3. For EACH private bucket (b, c, d, e), add policies:
+--    Click the bucket → "Policies" tab → "New policy" → "For full customization"
+--
+--    Policy 1 — INSERT (let any authenticated app user upload):
+--       Name: anon_insert
+--       Operation: INSERT
+--       Target roles: anon
+--       USING expression: true
+--       WITH CHECK expression: true
+--
+--    Policy 2 — SELECT (let any authenticated app user read):
+--       Name: anon_select
+--       Operation: SELECT
+--       Target roles: anon
+--       USING expression: true
+--
+--    Policy 3 — DELETE (let app delete when removing employees):
+--       Name: anon_delete
+--       Operation: DELETE
+--       Target roles: anon
+--       USING expression: true
+--
+-- 4. For the PUBLIC `photos` bucket — same 3 policies as above
+--    (the public bucket lets anyone READ via direct URL, but uploads still need policy).
+--
+-- ────────────────────────────────────────────────────────────
+-- VERIFICATION
+-- ────────────────────────────────────────────────────────────
+-- After both parts done:
+-- 1. Refresh your app
+-- 2. Upload an employee photo → should work without errors
+-- 3. Open Supabase Dashboard → Storage → photos → see the new file
+-- 4. Same for any document upload (medical, training, etc.)
+--
+-- If you get "Bucket not found" errors, the SQL is fine but you
+-- haven't created the buckets in Storage yet.
+--
+-- ────────────────────────────────────────────────────────────
+-- ROLLBACK / SAFETY
+-- ────────────────────────────────────────────────────────────
+-- If something goes wrong, the app falls back to legacy base64 storage
+-- automatically. No data is lost. Existing photos/documents continue
+-- to work. New uploads will prefer Storage but use base64 as fallback.
+--
+-- Done!

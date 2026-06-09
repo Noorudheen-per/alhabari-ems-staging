@@ -1,0 +1,22 @@
+{
+  "name": "Al Habari EMS",
+  "short_name": "Al Habari",
+  "description": "Employee Management System for Al Habari Engineering",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#8B1A2E",
+  "lang": "en",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Site Admin",     "short_name": "Site",      "url": "/#siteadmin",  "icons": [{"src":"/icon-192.png","sizes":"192x192"}] },
+    { "name": "Daily Sheet",    "short_name": "Sheet",     "url": "/#sheet",      "icons": [{"src":"/icon-192.png","sizes":"192x192"}] },
+    { "name": "Project Matrix", "short_name": "Matrix",    "url": "/#matrix",     "icons": [{"src":"/icon-192.png","sizes":"192x192"}] }
+  ]
+}
