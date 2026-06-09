@@ -43,7 +43,7 @@ function printLeaveApplication(id){
   const emp = employeeById(r.empId) || {};
   const leaveType = r.leaveType || "";
   const adminRejected = /refused|rejected/i.test(String(r.adminStatus||r.status||""));
-  const adminApproved = !adminRejected && (!!r.createdBy || r.adminStatus === "approved" || r.status === "admin_approved" || r.status === "management_approved" || r.status === "completed");
+  const adminApproved = !adminRejected && (r.adminStatus === "approved" || r.status === "admin_approved" || r.status === "management_approved" || r.status === "completed");
   const mgmtRejected = /refused|rejected/i.test(String(r.managementStatus||r.status||""));
   const mgmtApproved = !mgmtRejected && (r.managementStatus === "approved" || r.status === "management_approved" || r.status === "completed");
   const adminSig = leaveFindHistorySignatureV6(r, ["admin_approved","admin_rejected"]) || (adminApproved ? (r.adminBy || r.createdBy || "") : "");

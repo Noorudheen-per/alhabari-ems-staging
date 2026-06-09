@@ -997,7 +997,7 @@ const SITE_COLORS=["#1D9E75","#378ADD","#7F77DD","#D85A30","#B86B14","#C13A86","
 function nextSiteColor(){ return SITE_COLORS[SITES.length % SITE_COLORS.length]; }
 
 let USERS=[
-  {id:1,username:"admin",password:"admin123",role:"admin",display:"Admin",status:"approved",
+  {id:1,username:"admin",password:"__UNSET__",role:"admin",display:"Admin",status:"pending",
    perms:["employees","employees_edit","training","training_edit","gatepass_edit","ppe","equipment","site_admin","timekeeper","pmv","pmv_edit","management_view","gm_view","planner_view","settings"]}
 ];
 let nextUID=2;
@@ -1021,7 +1021,17 @@ function nextLocalSupplySerial(prefix, field){
   const yr = new Date().getFullYear();
   const existing = SUPPLY_REQUESTS.filter(r => r[field] && String(r[field]).startsWith(`${prefix}-${yr}-`));
   const maxN = existing.reduce((m,r) => Math.max(m, parseInt(String(r[field]).split("-")[2])||0), 0);
-  return `${prefix}-${yr}-${String(maxN+1).padStart(3,"0")}`;
+  const serial = `${prefix}-${yr}-${String(maxN+1).padStart(3,"0")}`;
+  // Reserve slot immediately to prevent duplicate from a second concurrent call before Supabase returns
+  if(!SUPPLY_REQUESTS.find(r => r[field] === serial)){
+    const placeholder = {[field]: serial, _placeholder: true};
+    SUPPLY_REQUESTS.push(placeholder);
+    setTimeout(() => {
+      const idx = SUPPLY_REQUESTS.indexOf(placeholder);
+      if(idx >= 0 && SUPPLY_REQUESTS[idx]._placeholder) SUPPLY_REQUESTS.splice(idx, 1);
+    }, 30000);
+  }
+  return serial;
 }
 function generateSupplyTokenFallback(){ return nextLocalSupplySerial("REQ", "token"); }
 function generateSupplyToken(){ return generateSupplyTokenFallback(); }
@@ -1612,7 +1622,7 @@ if(typeof document !== "undefined") document.addEventListener("DOMContentLoaded"
    module access must come only from that array so admins can remove individual modules. */
 function hasPerm(p){
   if(!session) return false;
-  if(Array.isArray(session.perms)) return session.perms.includes(p);
+  if(Array.isArray(session.perms) && session.perms.length > 0) return session.perms.includes(p);
   const preset = ROLE_PRESETS[session.role];
   return !!(preset && (preset.perms||[]).includes(p));
 }
@@ -2358,7 +2368,8 @@ const RT_TABLE_HANDLERS = {
   },
   "timesheets": (p) => {
     if(p.eventType === "DELETE"){
-      const i = TIMESHEETS.findIndex(t => t.id === p.old?.id); if(i>=0){TIMESHEETS.splice(i,1); return true;}
+      const i = TIMESHEETS.findIndex(t => t.id === p.old?.id);
+      if(i>=0){ TIMESHEETS.splice(i,1); invalidateEmployeeListCaches(); return true; }
       return false;
     }
     const r = p.new; if(!r) return false;
@@ -2380,6 +2391,7 @@ const RT_TABLE_HANDLERS = {
     };
     const i = TIMESHEETS.findIndex(x => x.id === t.id);
     if(i>=0) TIMESHEETS[i] = t; else TIMESHEETS.push(t);
+    invalidateEmployeeListCaches();
     return true;
   },
   "vehicles": (p) => {
@@ -3085,6 +3097,7 @@ function logout(){
   }
   stopSessionTimer();
   stopRealtimeSync();
+  if(window._empSiteRefreshTimer){ clearInterval(window._empSiteRefreshTimer); window._empSiteRefreshTimer = null; }
   // Clear any pending sync banner
   const banner = document.getElementById("rt-pending-banner");
   if(banner) banner.remove();
@@ -24703,6 +24716,7 @@ function applyRolePreset(userId,presetKey){
     sbUpsertUser(u);
     logEvent("update","user",u.display,"Cleared all permissions");
     toast(`✓ All permissions cleared for ${u.display}`);
+    if(session && session.id === u.id) session.perms = [];
     renderSettingsView();
     return;
   }
@@ -26615,11 +26629,13 @@ async function loadAllFromCloud(options={}){
         nextServiceID = VEHICLE_SERVICES.length ? Math.max(...VEHICLE_SERVICES.map(s=>s.id))+1 : 1;
       }
     }catch(e){ console.warn("Vehicles tables not set up:", e.message); }
-    const {data: audits} = await SB.from("audit_log").select("*").order("id",{ascending:false}).limit(500);
-    if(audits){
-      AUDIT_LOG = audits.map(a => ({id:a.id, timestamp:a.created_at, userId:a.user_id, userName:a.user_name, action:a.action, category:a.category, target:a.target, details:a.details}));
-      nextAuditID = AUDIT_LOG.length ? Math.max(...AUDIT_LOG.map(a=>a.id))+1 : 1;
-    }
+    try{
+      const {data: audits} = await SB.from("audit_log").select("*").order("id",{ascending:false}).limit(500);
+      if(audits){
+        AUDIT_LOG = audits.map(a => ({id:a.id, timestamp:a.created_at, userId:a.user_id, userName:a.user_name, action:a.action, category:a.category, target:a.target, details:a.details}));
+        nextAuditID = AUDIT_LOG.length ? Math.max(...AUDIT_LOG.map(a=>a.id))+1 : 1;
+      }
+    }catch(e){ console.warn("audit_log load failed:", e.message); }
   }catch(e){
     console.error("Load error:", e);
     toast("⚠️ Some data failed to load: " + e.message);

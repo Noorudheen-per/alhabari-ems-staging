@@ -242,10 +242,14 @@
     if(!item || !item.doc) return toast("Document not found");
     var url = typeof docResolveUrl === "function" ? await docResolveUrl(item.doc) : null;
     if(!url) return toast("Document URL not available");
+    if(!/^https?:\/\//i.test(url) && !/^data:image\//i.test(url) && !/^blob:/i.test(url)){
+      return toast("Document URL not available");
+    }
+    var safeUrl = url.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     var isImg = String(item.doc.type || item.doc.name || "").toLowerCase().match(/\.(png|jpg|jpeg|webp)$|image\//);
     var w = window.open("", "_blank");
     if(!w) return toast("Popup blocked. Allow popups to print.");
-    w.document.write('<!doctype html><html><head><title>'+esc533(item.title||"Document")+'</title><style>html,body{margin:0;height:100%;font-family:Arial}iframe{border:0;width:100%;height:100vh}img{max-width:100%;display:block;margin:0 auto}</style></head><body>'+(isImg?'<img src="'+url+'" onload="setTimeout(function(){print()},300)">':'<iframe src="'+url+'" onload="setTimeout(function(){print()},700)"></iframe>')+'</body></html>');
+    w.document.write('<!doctype html><html><head><title>'+esc533(item.title||"Document")+'</title><style>html,body{margin:0;height:100%;font-family:Arial}iframe{border:0;width:100%;height:100vh}img{max-width:100%;display:block;margin:0 auto}</style></head><body>'+(isImg?'<img src="'+safeUrl+'" onload="setTimeout(function(){print()},300)">':'<iframe src="'+safeUrl+'" onload="setTimeout(function(){print()},700)"></iframe>')+'</body></html>');
     w.document.close();
   };
   function ensureDocReportsPageV533(){
@@ -317,17 +321,19 @@
     if(typeof stripMojibakeTextV533 === "function") return stripMojibakeTextV533(value);
     return String(value == null ? "" : value).replace(/[\u00a2\u0192\u00c3\u00c2\u00e2\u00f0\u00ef\ufffd]+[^\s<>{}\[\]()"']*/g, " ").replace(/\s{2,}/g, " ").trim();
   }
+  // Extend the full TreeWalker-based cleaner rather than replacing it
+  var _prevCleanV533 = window.cleanVisibleTextV533;
   window.cleanVisibleTextV533 = function cleanVisibleTextV533(root){
     root = root || document.body;
     if(!root) return;
+    // Run the full TreeWalker pass first to catch all text nodes (td, span, div, p, etc.)
+    if(typeof _prevCleanV533 === "function") _prevCleanV533(root);
+    // Then clean attributes on named UI elements
     var selector = ".topbar-title,.module-name,.module-desc,.module-icon,.section-title,.tab-btn,.pill,.btn,.lbl,.badge,label,summary,h1,h2,h3,h4,th,caption,.empty-state,.info-box,.stat-mini div,.form-row div,.modal-title,.modal-header,#modal-popup-title,#popup-title";
     var list = [];
     if(root.matches && root.matches(selector)) list.push(root);
     if(root.querySelectorAll) list = list.concat(Array.from(root.querySelectorAll(selector)));
     list.slice(0,900).forEach(function(el){
-      Array.from(el.childNodes || []).forEach(function(n){
-        if(n.nodeType === 3 && badTextReV534.test(n.nodeValue || "")) n.nodeValue = stripUiTextV534(n.nodeValue);
-      });
       ["title","placeholder","aria-label"].forEach(function(a){
         var v = el.getAttribute && el.getAttribute(a);
         if(v && badTextReV534.test(v)) el.setAttribute(a, stripUiTextV534(v));
